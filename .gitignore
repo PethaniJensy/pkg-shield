@@ -1,0 +1,34 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environment
+venv/
+env/
+.env
+
+# Database (Keep the schema in code, but don't commit the live SQLite DB)
+database/*.db
+
+# Temporary and quarantined downloaded packages
+storage/temp/*
+storage/quarantine/*
+!storage/temp/.gitkeep
+!storage/quarantine/.gitkeep
+
+# Machine Learning model binaries & datasets
+ml/dataset/*.csv
+ml/dataset/*.tar.gz
+*.joblib
+*.pkl
+
+# Logs & trace dumps
+*.log
+tracee.json
+
+# OS and Editor files
+.DS_Store
+.vscode/
+.idea/
