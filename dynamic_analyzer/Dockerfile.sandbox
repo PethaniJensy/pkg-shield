@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    iproute2 \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /sandbox
+COPY detonate.sh /sandbox/detonate.sh
+RUN chmod +x /sandbox/detonate.sh
+ENTRYPOINT ["/sandbox/detonate.sh"]
