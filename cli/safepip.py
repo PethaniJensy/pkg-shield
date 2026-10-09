@@ -87,9 +87,15 @@ def try_dynamic_analysis(pkg_path: str, pkg_name: str) -> Tuple[Dict[str, float]
 
 
 def generate_xai_explanations(features: Dict[str, float], static_findings: List[str]) -> List[str]:
-    """Generates plain-English explainable AI bullet points from top features."""
+    """Generates plain-English explainable AI bullet points from top features.
+
+    Covers both static AST indicators and dynamic (eBPF-derived) behavioural
+    features so that every non-zero indicator the model sees is explained
+    in human-readable language.
+    """
     bullets = list(static_findings)
 
+    # ── Static combination indicators ────────────────────────────────────────
     if features.get("feature_dynamic_execution_keyword", 0) > 0 and features.get("feature_encoding_keyword", 0) > 0:
         bullets.append("Obfuscated code payload: Detected base64 decoding combined with eval/exec.")
     if features.get("feature_shell_keyword", 0) > 0:
@@ -101,8 +107,50 @@ def generate_xai_explanations(features: Dict[str, float], static_findings: List[
     if features.get("feature_credential_keyword", 0) > 0:
         bullets.append("Credential references: Sensitive tokens or password patterns scanned.")
 
-    # Remove duplicates
+    # ── Dynamic / eBPF behavioural indicators ────────────────────────────────
+    if features.get("dynamic_process_execution_indicator", 0) > 0:
+        bullets.append("Sandbox: Process execution indicator — subprocess or execve call observed during detonation.")
+    if features.get("dynamic_shell_indicator", 0) > 0:
+        bullets.append("Sandbox: Shell process spawned — /bin/sh or /bin/bash launched inside sandbox.")
+    if features.get("dynamic_network_indicator", 0) > 0:
+        bullets.append("Sandbox: Network egress attempt — outbound connection tried during sandbox run.")
+    if features.get("dynamic_network_operations", 0) > 0:
+        bullets.append(f"Sandbox: {int(features['dynamic_network_operations'])} network syscall(s) recorded (connect/send/recv).")
+    if features.get("dynamic_remote_ip_address_access", 0) > 0:
+        bullets.append("Sandbox: Remote IP address accessed — possible C2 callback or exfiltration attempt.")
+    if features.get("dynamic_unique_ips", 0) > 0:
+        bullets.append(f"Sandbox: Contacted {int(features['dynamic_unique_ips'])} unique IP address(es) during detonation.")
+    if features.get("dynamic_filesystem_indicator", 0) > 0:
+        bullets.append("Sandbox: Filesystem write indicator — package wrote to disk outside install directory.")
+    if features.get("dynamic_total_writes", 0) > 0:
+        bullets.append(f"Sandbox: {int(features['dynamic_total_writes'])} file write event(s) detected during install/import.")
+    if features.get("dynamic_credential_indicator", 0) > 0:
+        bullets.append("Sandbox: Credential access indicator — package touched sensitive system paths (/etc/passwd, ~/.ssh).")
+    if features.get("dynamic_download_indicator", 0) > 0:
+        bullets.append("Sandbox: Download indicator — package attempted to fetch a remote payload during execution.")
+    if features.get("dynamic_suspicious_execution_indicator", 0) > 0:
+        bullets.append("Sandbox: Suspicious execution pattern — combined high-risk syscall sequence detected.")
+    if features.get("dynamic_network_execution_combination", 0) > 0:
+        bullets.append("Sandbox: Network + execution combination — package both spawned processes AND made network calls.")
+    if features.get("dynamic_file_network_combination", 0) > 0:
+        bullets.append("Sandbox: File + network combination — wrote files and made network calls in same session.")
+    if features.get("dynamic_root_dir_installation", 0) > 0:
+        bullets.append("Sandbox: Root-level install path detected — package attempted to write to /.")
+    if features.get("dynamic_etc_dir_installation", 0) > 0:
+        bullets.append("Sandbox: /etc directory write detected — possible system configuration tampering.")
+    if features.get("dynamic_sys_access", 0) > 0:
+        bullets.append("Sandbox: /sys filesystem access — package accessed kernel interfaces.")
+    if features.get("dynamic_security_operations", 0) > 0:
+        bullets.append(f"Sandbox: {int(features['dynamic_security_operations'])} security-related syscall(s) — possible privilege escalation.")
+    if features.get("dynamic_total_error", 0) > 0:
+        bullets.append("Sandbox: Detonation error or timeout — abnormal runtime behaviour observed.")
+    if features.get("dynamic_activity_score", 0) >= 0.75:
+        score = features["dynamic_activity_score"]
+        bullets.append(f"Sandbox: High behavioural activity score ({score:.2f}) — package exhibited significant suspicious activity during detonation.")
+
+    # Remove duplicates while preserving order
     return list(dict.fromkeys(bullets))
+
 
 
 def render_security_report(pkg_name: str, version: str, sha256: str, risk_score: float, zone: str, scan_type: str, explanations: List[str]):
@@ -200,9 +248,10 @@ def main():
             decision = Confirm.ask("⚠️  [bold yellow]Proceed with installation despite warning?[/bold yellow]", default=False)
             if decision:
                 insert_audit_log(pkg_name, version, file_hash, cached["risk_score"], "USER_APPROVED")
+                console.print("[bold green]✅ User override approved. Override recorded to audit log.[/bold green]")
                 handle_installation(package_spec)
             else:
-                insert_audit_log(pkg_name, version, file_hash, cached["risk_score"], "USER_REJECTED")
+                # Spec: [N] → Abort. No audit entry (no action taken).
                 console.print("[yellow][!] Installation aborted by user.[/yellow]")
             if os.path.exists(pkg_file):
                 os.remove(pkg_file)
@@ -285,8 +334,8 @@ def main():
             console.print("[bold green]✅ User override approved. Override recorded to audit log.[/bold green]")
             handle_installation(package_spec)
         else:
-            insert_audit_log(pkg_name, version, file_hash, risk_score, "USER_REJECTED")
-            console.print("[bold yellow][!] Installation aborted by user. Quarantining files.[/bold yellow]")
+            # Spec: [N] → Abort. No audit entry (no action taken).
+            console.print("[bold yellow][!] Installation aborted by user.[/bold yellow]")
 
     elif zone == "ZONE3":
         console.print("[bold red][🚫 HARD BLOCK] Malicious threat identified. Package quarantined.[/bold red]")
