@@ -157,7 +157,9 @@ def handle_installation(package_spec: str):
     """Executes safe installation on the host via real pip."""
     console.print(f"[bold green][*] Installing {package_spec} via pip...[/bold green]")
     cmd = [sys.executable, "-m", "pip", "install", package_spec]
-    subprocess.run(cmd)
+    env = os.environ.copy()
+    env["SAFEPIP_BYPASS"] = "1"
+    subprocess.run(cmd, env=env)
 
 
 def main():
